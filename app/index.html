@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Classificador de Reviews PT-BR | BERTimbau</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0f172a;
+      color: #f8fafc;
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    .card {
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    p.sub { color: #94a3b8; font-size: 0.95rem; }
+    a { color: #38bdf8; text-decoration: none; }
+    .examples { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+    button {
+      background: #334155;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      padding: 8px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    button:hover { background: #475569; }
+    button.primary {
+      background: #ea1d2c;
+      border-color: #ea1d2c;
+      font-weight: 600;
+      width: 100%;
+      padding: 12px;
+      font-size: 1rem;
+      margin-top: 12px;
+    }
+    button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.95rem;
+      resize: vertical;
+    }
+    .status { font-size: 0.85rem; color: #fbbf24; margin-top: 10px; }
+    .result-box { margin-top: 20px; display: none; }
+    .bar-row { margin-bottom: 12px; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 4px; }
+    .bar-bg { background: #0f172a; height: 10px; border-radius: 6px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #38bdf8; transition: width 0.3s ease; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Classificador de Avaliações em PT-BR (Client-Side)</h1>
+    <p class="sub">
+      Inferência rodando 100% no navegador via <strong>Transformers.js (ONNX)</strong> usando o modelo
+      <a href="https://huggingface.co/GetulioCO/bertimbau-ptbr-review-classifier" target="_blank">
+        GetulioCO/bertimbau-ptbr-review-classifier
+      </a>.
+    </p>
+
+    <div class="examples">
+      <button type="button" onclick="setExample('pos')">Exemplo Positivo</button>
+      <button type="button" onclick="setExample('neu')">Exemplo Neutro</button>
+      <button type="button" onclick="setExample('neg')">Exemplo Negativo</button>
+    </div>
+
+    <textarea id="reviewInput" rows="4">Entrega super rápida! O lanche chegou quentinho, bem embalado e exatamente como pedi.</textarea>
+    <button id="analyzeBtn" class="primary" onclick="analyze()">Analisar Sentimento</button>
+    <div id="status" class="status">Carregando modelo ONNX no navegador (apenas na 1ª execução)...</div>
+
+    <div id="results" class="result-box"></div>
+  </div>
+
+  <script type="module">
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
+
+    const MODEL_ID = 'GetulioCO/bertimbau-ptbr-review-classifier';
+    let classifier = null;
+
+    const examples = {
+      pos: "Entrega super rápida! O lanche chegou quentinho, bem embalado e exatamente como pedi.",
+      neu: "A comida estava gostosa, mas demorou quase 40 minutos além do previsto para chegar.",
+      neg: "Pedido veio completamente errado, embalagem violada e o suporte não resolveu meu problema."
+    };
+
+    window.setExample = (type) => {
+      document.getElementById('reviewInput').value = examples[type];
+    };
+
+    async function initModel() {
+      try {
+        classifier = await pipeline('text-classification', MODEL_ID, {
+          dtype: 'fp32'
+        });
+        document.getElementById('status').innerText = 'Modelo carregado e pronto para inferência local!';
+        document.getElementById('status').style.color = '#4ade80';
+      } catch (err) {
+        document.getElementById('status').innerText = 'Erro ao carregar modelo ONNX: ' + err.message;
+        document.getElementById('status').style.color = '#f87171';
+      }
+    }
+
+    window.analyze = async () => {
+      const text = document.getElementById('reviewInput').value.trim();
+      if (!text || !classifier) return;
+
+      const btn = document.getElementById('analyzeBtn');
+      btn.disabled = true;
+      btn.innerText = 'Analisando...';
+
+      const t0 = performance.now();
+      const outputs = await classifier(text, { top_k: 3 });
+      const latency = (performance.now() - t0).toFixed(0);
+
+      const resBox = document.getElementById('results');
+      resBox.style.display = 'block';
+      resBox.innerHTML = `<p style="color:#94a3b8;font-size:0.85rem;">Latência no navegador: <strong>${latency} ms</strong></p>` +
+        outputs.map(item => `
+          <div class="bar-row">
+            <div class="bar-label">
+              <span><strong>${item.label}</strong></span>
+              <span>${(item.score * 100).toFixed(2)}%</span>
+            </div>
+            <div class="bar-bg">
+              <div class="bar-fill" style="width: ${(item.score * 100).toFixed(1)}%"></div>
+            </div>
+          </div>
+        `).join('');
+
+      btn.disabled = false;
+      btn.innerText = 'Analisar Sentimento';
+    };
+
+    initModel();
+  </script>
+</body>
+</html>
